@@ -1,0 +1,28 @@
+name: vibe_studio
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.1
+
+dependencies:
+  file_picker: ^11.0.3
+  flutter:
+    sdk: flutter
+  flutter_code_editor: ^0.3.5
+  flutter_pty: ^0.4.2
+  highlight: ^0.7.0
+  http: ^1.6.0
+  path: ^1.9.1
+  xterm: ^4.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
