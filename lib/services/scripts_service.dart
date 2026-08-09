@@ -181,7 +181,7 @@ class ScriptsService extends ChangeNotifier {
     try {
       final proc = await Process.start(
         'bash',
-        ['-c', cmd],
+        ['-ic', cmd],
         workingDirectory: dir,
         environment: Platform.environment,
       );

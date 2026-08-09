@@ -66,12 +66,23 @@ class ServerService {
     if (configContent != null) {
       env['OPENCODE_CONFIG_CONTENT'] = configContent;
     }
-    var proc = await Process.start(
-      'opencode',
-      ['serve', '--port', '$port'],
-      workingDirectory: projectDir,
-      environment: env,
-    );
+    Process proc;
+    if (Platform.isWindows) {
+      proc = await Process.start(
+        'opencode',
+        ['serve', '--port', '$port'],
+        workingDirectory: projectDir,
+        environment: env,
+        runInShell: true,
+      );
+    } else {
+      proc = await Process.start(
+        'bash',
+        ['-ic', 'opencode serve --port $port'],
+        workingDirectory: projectDir,
+        environment: env,
+      );
+    }
     _process = proc;
 
     proc.exitCode.then((code) {
