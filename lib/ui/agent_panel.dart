@@ -43,15 +43,18 @@ class _AgentPanelState extends State<AgentPanel> {
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
           child: Row(
             children: [
-              const Text(
-                'AI Team',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey,
+              Expanded(
+                child: Text(
+                  'AI Team',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Text(
                 '${controller.agents.where((a) => a.status != AgentStatus.stopped).length} active',
                 style: const TextStyle(fontSize: 11, color: Colors.grey),

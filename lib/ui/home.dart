@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -28,10 +30,21 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  _BottomPanel _bottom = _BottomPanel.terminal;
   bool _showBackendTester = false;
   bool _showScripts = false;
   bool _showChanges = false;
+  double _leftWidth = 260;
+  double _rightWidth = 380;
+  double _bottomHeight = 210;
+  final Set<DockablePanel> _hidden = {};
+  final Map<DockablePanel, PanelSide> _panelSide = {
+    DockablePanel.files: PanelSide.left,
+    DockablePanel.agents: PanelSide.right,
+    DockablePanel.todos: PanelSide.right,
+    DockablePanel.logs: PanelSide.right,
+    DockablePanel.terminal: PanelSide.bottom,
+  };
+  bool _docking = false;
 
   AppController get controller => widget.controller;
 
@@ -60,62 +73,185 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  /// Shows/hides a dockable panel (used by the terminal toggle).
+  void _togglePanel(DockablePanel panel) {
+    if (!_hidden.remove(panel)) _hidden.add(panel);
+  }
+
+  /// Re-docks a panel onto another side after a drag-drop.
+  void _dockPanel(DockablePanel panel, PanelSide side) {
+    setState(() => _panelSide[panel] = side);
+  }
+
+  List<DockablePanel> _visiblePanelsOn(PanelSide side) => [
+        for (final p in DockablePanel.values)
+          if (_panelSide[p] == side && !_hidden.contains(p)) p,
+      ];
+
+  /// Stacks every panel docked on [side] vertically, each wrapped in a
+  /// draggable tab strip (VS Code style) plus the panel body.
+  Widget _buildSideColumn(PanelSide side) {
+    final panels = _visiblePanelsOn(side);
+    if (panels.isEmpty) return const SizedBox.shrink();
+    return Column(
+      children: [
+        for (var i = 0; i < panels.length; i++) ...[
+          if (i > 0) const Divider(height: 1, color: Color(0xFF2A2B33)),
+          Expanded(
+            flex: _panelFlex(panels[i]),
+            child: _DockPanel(
+              panel: panels[i],
+              controller: controller,
+              onDragChanged: (v) => setState(() => _docking = v),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  int _panelFlex(DockablePanel panel) => switch (panel) {
+        DockablePanel.agents => 3,
+        DockablePanel.todos => 5,
+        DockablePanel.logs => 3,
+        _ => 1,
+      };
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Focus(
         autofocus: true,
         onKeyEvent: _handleGlobalKey,
-        child: ListenableBuilder(
-          listenable: controller,
-          builder: (context, _) {
-            return Column(
-              children: [
-                _buildToolbar(context),
-                const Divider(height: 1, color: Color(0xFF2A2B33)),
-                Expanded(
-                  child: controller.isProjectOpen
-                      ? Row(
-                          children: [
-                            SizedBox(width: 260, child: FileTree(controller)),
-                            const VerticalDivider(width: 1),
-                            Expanded(child: _buildCenter(context)),
-                            const VerticalDivider(width: 1),
-                            SizedBox(
-                              width: 380,
-                              child: Column(
-                                children: [
-                                  Expanded(
-                                    flex: 3,
-                                    child: AgentPanel(controller),
-                                  ),
-                                  const Divider(height: 1),
-                                  Expanded(
-                                    flex: 5,
-                                    child: TodoPanel(controller),
-                                  ),
-                                  const Divider(height: 1),
-                                  Expanded(
-                                    flex: 3,
-                                    child: LogPanel(controller),
-                                  ),
-                                ],
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: ListenableBuilder(
+                listenable: controller,
+                builder: (context, _) {
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      final maxW = constraints.maxWidth;
+                      final maxH = constraints.maxHeight;
+                      double clampLeft(double w) => w.clamp(
+                            160,
+                            math.max(160, maxW - _rightWidth - 340),
+                          );
+                      double clampRight(double w) => w.clamp(
+                            280,
+                            math.max(280, maxW - _leftWidth - 340),
+                          );
+                      final leftPanels = _visiblePanelsOn(PanelSide.left);
+                      final rightPanels = _visiblePanelsOn(PanelSide.right);
+                      final bottomPanels = _visiblePanelsOn(PanelSide.bottom);
+                      return Column(
+                        children: [
+                          _buildToolbar(context),
+                          const Divider(height: 1, color: Color(0xFF2A2B33)),
+                          Expanded(
+                            child: controller.isProjectOpen
+                                ? Row(
+                                    children: [
+                                      if (leftPanels.isNotEmpty) ...[
+                                        RepaintBoundary(
+                                          child: SizedBox(
+                                            width: clampLeft(_leftWidth),
+                                            child: _buildSideColumn(
+                                                PanelSide.left),
+                                          ),
+                                        ),
+                                        _ResizeHandle(
+                                          axis: Axis.vertical,
+                                          onDelta: (dx) => setState(() =>
+                                              _leftWidth = clampLeft(
+                                                  _leftWidth + dx)),
+                                          onDoubleTap: () =>
+                                              setState(() => _leftWidth = 260),
+                                        ),
+                                      ],
+                                      Expanded(
+                                        child: RepaintBoundary(
+                                            child: _buildCenter(context)),
+                                      ),
+                                      if (rightPanels.isNotEmpty) ...[
+                                        _ResizeHandle(
+                                          axis: Axis.vertical,
+                                          onDelta: (dx) => setState(() =>
+                                              _rightWidth = clampRight(
+                                                  _rightWidth - dx)),
+                                          onDoubleTap: () => setState(
+                                              () => _rightWidth = 380),
+                                        ),
+                                        RepaintBoundary(
+                                          child: SizedBox(
+                                            width: clampRight(_rightWidth),
+                                            child: _buildSideColumn(
+                                                PanelSide.right),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  )
+                                : _buildWelcome(context),
+                          ),
+                          if (bottomPanels.isNotEmpty) ...[
+                            _ResizeHandle(
+                              axis: Axis.horizontal,
+                              onDelta: (dy) => setState(() =>
+                                  _bottomHeight = (_bottomHeight - dy).clamp(
+                                      120, math.max(120, maxH * 0.75))),
+                              onDoubleTap: () =>
+                                  setState(() => _bottomHeight = 210),
+                            ),
+                            RepaintBoundary(
+                              child: SizedBox(
+                                height: _bottomHeight,
+                                child: _buildSideColumn(PanelSide.bottom),
                               ),
                             ),
                           ],
-                        )
-                      : _buildWelcome(context),
-                ),
-                if (_bottom != _BottomPanel.none) ...[
-                  const Divider(height: 1, color: Color(0xFF2A2B33)),
-                  SizedBox(
-                    height: 210,
-                    child: TerminalPanel(controller),
-                  ),
-                ],
-              ],
-            );
-          },
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            // Drop zones: drag a panel's tab to an edge to re-dock it there.
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 44,
+              child: _DropZone(
+                side: PanelSide.left,
+                active: _docking,
+                onAccept: (p) => _dockPanel(p, PanelSide.left),
+              ),
+            ),
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: 44,
+              child: _DropZone(
+                side: PanelSide.right,
+                active: _docking,
+                onAccept: (p) => _dockPanel(p, PanelSide.right),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 44,
+              child: _DropZone(
+                side: PanelSide.bottom,
+                active: _docking,
+                onAccept: (p) => _dockPanel(p, PanelSide.bottom),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -188,9 +324,7 @@ class _HomePageState extends State<HomePage> {
     switch (event.logicalKey) {
       case LogicalKeyboardKey.keyT:
         if (shift) {
-          setState(() => _bottom = _bottom == _BottomPanel.terminal
-              ? _BottomPanel.none
-              : _BottomPanel.terminal);
+          setState(() => _togglePanel(DockablePanel.terminal));
           return KeyEventResult.handled;
         }
       case LogicalKeyboardKey.keyP:
@@ -314,17 +448,16 @@ class _HomePageState extends State<HomePage> {
           ),
           const SizedBox(width: 16),
           IconButton(
-            onPressed: () => setState(() => _bottom = _bottom == _BottomPanel.terminal
-                ? _BottomPanel.none
-                : _BottomPanel.terminal),
+            onPressed: () =>
+                setState(() => _togglePanel(DockablePanel.terminal)),
             icon: Icon(
-              _bottom == _BottomPanel.terminal
-                  ? Icons.terminal
-                  : Icons.terminal_outlined,
+              _hidden.contains(DockablePanel.terminal)
+                  ? Icons.terminal_outlined
+                  : Icons.terminal,
               size: 20,
-              color: _bottom == _BottomPanel.terminal
-                  ? const Color(0xFF7C4DFF)
-                  : Colors.grey,
+              color: _hidden.contains(DockablePanel.terminal)
+                  ? Colors.grey
+                  : const Color(0xFF7C4DFF),
             ),
             tooltip: 'Toggle terminal (Ctrl+Shift+T)',
             visualDensity: VisualDensity.compact,
@@ -480,7 +613,257 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-enum _BottomPanel { terminal, none }
+/// Where a dockable panel currently lives.
+enum PanelSide { left, right, bottom }
+
+/// The dockable panels that can be dragged between sides, VS Code style.
+enum DockablePanel { files, agents, todos, logs, terminal }
+
+/// VS Code-style resize handle. A thin draggable bar between two panels;
+/// dragging moves the boundary, stretching/shrinking the panels. Double-click
+/// resets the adjacent panel to its default size.
+class _ResizeHandle extends StatefulWidget {
+  final Axis axis;
+  final ValueChanged<double> onDelta;
+  final VoidCallback? onDoubleTap;
+
+  const _ResizeHandle({
+    required this.axis,
+    required this.onDelta,
+    this.onDoubleTap,
+  });
+
+  @override
+  State<_ResizeHandle> createState() => _ResizeHandleState();
+}
+
+class _ResizeHandleState extends State<_ResizeHandle> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final horizontal = widget.axis == Axis.horizontal;
+    return MouseRegion(
+      cursor: horizontal
+          ? SystemMouseCursors.resizeUpDown
+          : SystemMouseCursors.resizeLeftRight,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: widget.onDoubleTap,
+        onHorizontalDragUpdate:
+            horizontal ? null : (d) => widget.onDelta(d.delta.dx),
+        onVerticalDragUpdate:
+            horizontal ? (d) => widget.onDelta(d.delta.dy) : null,
+        child: Container(
+          width: horizontal ? double.infinity : 7,
+          height: horizontal ? 7 : double.infinity,
+          color: _hover ? const Color(0xFF23242C) : const Color(0xFF191A20),
+          child: Center(
+            child: Container(
+              width: horizontal ? double.infinity : 1,
+              height: horizontal ? 1 : double.infinity,
+              color: _hover ? const Color(0xFF7C4DFF) : const Color(0xFF2A2B33),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A docked panel: slim draggable tab strip on top, panel body below.
+class _DockPanel extends StatelessWidget {
+  final DockablePanel panel;
+  final AppController controller;
+  final ValueChanged<bool> onDragChanged;
+
+  const _DockPanel({
+    required this.panel,
+    required this.controller,
+    required this.onDragChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _PanelTab(panel: panel, onDragChanged: onDragChanged),
+        Expanded(
+          child: switch (panel) {
+            DockablePanel.files => FileTree(controller),
+            DockablePanel.agents => AgentPanel(controller),
+            DockablePanel.todos => TodoPanel(controller),
+            DockablePanel.logs => LogPanel(controller),
+            DockablePanel.terminal => TerminalPanel(controller),
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// The grab bar of a docked panel. Dragging it onto an edge of the window
+/// re-docks the panel on that side.
+class _PanelTab extends StatelessWidget {
+  final DockablePanel panel;
+  final ValueChanged<bool> onDragChanged;
+
+  const _PanelTab({required this.panel, required this.onDragChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, icon) = switch (panel) {
+      DockablePanel.files => ('Files', Icons.folder_outlined),
+      DockablePanel.agents => ('Agents', Icons.smart_toy_outlined),
+      DockablePanel.todos => ('Todos', Icons.checklist_outlined),
+      DockablePanel.logs => ('Logs', Icons.receipt_long_outlined),
+      DockablePanel.terminal => ('Terminal', Icons.terminal),
+    };
+    return Draggable<DockablePanel>(
+      data: panel,
+      onDragStarted: () => onDragChanged(true),
+      onDragEnd: (_) => onDragChanged(false),
+      onDragCompleted: () => onDragChanged(false),
+      onDraggableCanceled: (_, _) => onDragChanged(false),
+      feedback: _PanelTabPill(label: label, icon: icon),
+      childWhenDragging: const Opacity(opacity: 0.35, child: _PanelTabBase()),
+      child: Tooltip(
+        message: 'Drag to move panel to another side',
+        waitDuration: const Duration(milliseconds: 600),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.grab,
+          child: _PanelTabBase(icon: icon, label: label),
+        ),
+      ),
+    );
+  }
+}
+
+class _PanelTabBase extends StatelessWidget {
+  final IconData? icon;
+  final String? label;
+
+  const _PanelTabBase({this.icon, this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E1F26),
+        border: Border(bottom: BorderSide(color: Color(0xFF2A2B33))),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.drag_indicator, size: 13, color: Colors.white38),
+          const SizedBox(width: 4),
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: const Color(0xFFB39DDB)),
+            const SizedBox(width: 5),
+          ],
+          if (label != null)
+            Expanded(
+              child: Text(
+                label!,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Floating preview shown while a panel tab is being dragged.
+class _PanelTabPill extends StatelessWidget {
+  final String label;
+  final IconData icon;
+
+  const _PanelTabPill({required this.label, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF7C4DFF),
+      elevation: 6,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Edge-of-window drop target that appears while a panel is being dragged.
+class _DropZone extends StatelessWidget {
+  final PanelSide side;
+  final bool active;
+  final ValueChanged<DockablePanel> onAccept;
+
+  const _DropZone({
+    required this.side,
+    required this.active,
+    required this.onAccept,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: !active,
+      child: DragTarget<DockablePanel>(
+        onWillAcceptWithDetails: (_) => true,
+        onAcceptWithDetails: (d) => onAccept(d.data),
+        builder: (context, candidates, _) {
+          final over = candidates.isNotEmpty;
+          final (arrow, alignment) = switch (side) {
+            PanelSide.left => (Icons.arrow_back, Alignment.centerLeft),
+            PanelSide.right => (Icons.arrow_forward, Alignment.centerRight),
+            PanelSide.bottom => (Icons.arrow_downward, Alignment.bottomCenter),
+          };
+          return Container(
+            alignment: alignment,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: over ? const Color(0x667C4DFF) : Colors.transparent,
+              border: over
+                  ? Border.all(color: const Color(0xFF7C4DFF), width: 2)
+                  : null,
+            ),
+            child: AnimatedOpacity(
+              opacity: over ? 1 : 0,
+              duration: const Duration(milliseconds: 150),
+              child: Icon(arrow, color: Colors.white, size: 20),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
 
 /// VS Code-style tab strip for the center editor area. Each tab has an X that
 /// closes only the view — the underlying process keeps running.
