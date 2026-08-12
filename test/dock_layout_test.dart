@@ -87,6 +87,40 @@ void main() {
 
     controller.dispose();
   });
+
+  testWidgets('closing a center tab hides the panel and the Panels menu restores it',
+      (tester) async {
+    final controller = AppController();
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    controller.projectDir = '/tmp/opencode/docktest';
+    controller.fileNodes = [];
+    await tester.pumpWidget(VibeStudioApp(controller: controller));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
+
+    // Dock Logs into the center, then close it with its tab's X button.
+    await _dragTo(tester, find.text('Logs'), Offset(width / 2, 200));
+    expect(find.text('Logs'), findsOneWidget);
+    expect(find.byIcon(Icons.close), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Logs'), findsNothing);
+
+    // The Panels menu lists it unchecked; re-checking restores it.
+    await tester.tap(find.byIcon(Icons.view_agenda_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Logs'));
+    await tester.pumpAndSettle();
+    expect(find.text('Logs'), findsOneWidget);
+    expect(tester.getRect(find.text('Logs')).left, greaterThan(width * 0.5));
+
+    controller.dispose();
+  });
 }
 
 /// Starts a gesture on [from], drags it to [to] in small steps so the drag
