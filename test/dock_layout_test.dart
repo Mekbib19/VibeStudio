@@ -49,6 +49,44 @@ void main() {
 
     controller.dispose();
   });
+
+  testWidgets('panels can be docked into the center as tabs', (tester) async {
+    final controller = AppController();
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    controller.projectDir = '/tmp/opencode/docktest';
+    controller.fileNodes = [];
+    await tester.pumpWidget(VibeStudioApp(controller: controller));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
+    final height = tester.view.physicalSize.height / tester.view.devicePixelRatio;
+
+    // Logs starts docked on the right (tab near the bottom of the window).
+    expect(tester.getRect(find.text('Logs')).center.dy, greaterThan(height * 0.5));
+
+    // Drag the Logs tab into the center -> opens as a center tab near the top.
+    await _dragTo(tester, find.text('Logs'), Offset(width / 2, height / 2));
+    final logsRect = tester.getRect(find.text('Logs'));
+    expect(logsRect.center.dx, greaterThan(width * 0.25));
+    expect(logsRect.center.dx, lessThan(width * 0.75));
+    expect(logsRect.center.dy, lessThan(height * 0.2));
+
+    // The panel body moved into the center alongside the tab: its header is
+    // left-aligned at the start of the center column (it used to sit far
+    // right, in the right-hand dock).
+    expect(find.text('System Log'), findsOneWidget);
+    expect(tester.getRect(find.text('System Log')).center.dx,
+        lessThan(width * 0.5));
+
+    // The Logs center tab can be dragged back out onto an edge.
+    await _dragTo(tester, find.text('Logs'), Offset(10, logsRect.center.dy));
+    expect(tester.getRect(find.text('Logs')).left, lessThan(width * 0.5));
+
+    controller.dispose();
+  });
 }
 
 /// Starts a gesture on [from], drags it to [to] in small steps so the drag

@@ -908,6 +908,15 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Switches the center editor area back to the file editor, deselecting any
+  /// open detail tab (the tab stays open, just no longer active).
+  void focusEditor() {
+    if (_activeDetailTab != null) {
+      _activeDetailTab = null;
+      notifyListeners();
+    }
+  }
+
   void markEditorDirtyQuiet(String content) {
     editorContent = content;
     editorDirty = true;

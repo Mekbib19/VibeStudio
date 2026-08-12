@@ -30,21 +30,31 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  bool _showBackendTester = false;
-  bool _showScripts = false;
-  bool _showChanges = false;
   double _leftWidth = 260;
   double _rightWidth = 380;
   double _bottomHeight = 210;
-  final Set<DockablePanel> _hidden = {};
+  final Set<DockablePanel> _hidden = {
+    DockablePanel.scripts,
+    DockablePanel.changes,
+    DockablePanel.backend,
+  };
   final Map<DockablePanel, PanelSide> _panelSide = {
     DockablePanel.files: PanelSide.left,
     DockablePanel.agents: PanelSide.right,
     DockablePanel.todos: PanelSide.right,
     DockablePanel.logs: PanelSide.right,
     DockablePanel.terminal: PanelSide.bottom,
+    DockablePanel.scripts: PanelSide.center,
+    DockablePanel.changes: PanelSide.center,
+    DockablePanel.backend: PanelSide.center,
   };
   bool _docking = false;
+
+  /// The center-docked panel currently selected as the active center tab.
+  /// Null means the file editor (or the active detail tab) is shown instead.
+  DockablePanel? _centerPanel;
+  String? _lastDetailTabId;
+  String? _lastOpenFile;
 
   AppController get controller => widget.controller;
 
@@ -60,28 +70,87 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  /// When a detail tab opens, drop any full-center panel (run scripts /
-  /// changes / backend tester) so the new tab is visible immediately — no
-  /// overlap and no need to close one thing before opening another.
+  /// Center tabs coexist now, so instead of closing one thing to open another
+  /// we simply deselect a selected center-docked panel whenever a file or a
+  /// detail tab becomes the active center view — the panel tab stays open.
   void _onControllerChanged() {
-    if (widget.controller.detailTabs.isEmpty) return;
-    if (!_showBackendTester && !_showScripts && !_showChanges) return;
+    final c = widget.controller;
+    var changed = false;
+    if (c.openFile != _lastOpenFile) {
+      _lastOpenFile = c.openFile;
+      if (c.openFile != null && _centerPanel != null) {
+        _centerPanel = null;
+        changed = true;
+      }
+    }
+    final tab = c.activeDetailTab;
+    if (tab?.id != _lastDetailTabId) {
+      _lastDetailTabId = tab?.id;
+      if (tab != null && _centerPanel != null) {
+        _centerPanel = null;
+        changed = true;
+      }
+    }
+    if (changed) setState(() {});
+  }
+
+  /// Shows/hides a dockable panel (used by the toolbar toggles and keyboard
+  /// shortcuts). Opening a panel that lives in the center selects it.
+  void _togglePanel(DockablePanel panel) {
     setState(() {
-      _showBackendTester = false;
-      _showScripts = false;
-      _showChanges = false;
+      if (!_hidden.remove(panel)) {
+        _hidden.add(panel);
+        if (_centerPanel == panel) _centerPanel = null;
+      } else if (_panelSide[panel] == PanelSide.center) {
+        _centerPanel = panel;
+      }
     });
   }
 
-  /// Shows/hides a dockable panel (used by the terminal toggle).
-  void _togglePanel(DockablePanel panel) {
-    if (!_hidden.remove(panel)) _hidden.add(panel);
+  /// Re-docks a panel onto another side after a drag-drop. Dropping on the
+  /// center opens the panel as a center tab and selects it.
+  void _dockPanel(DockablePanel panel, PanelSide side) {
+    setState(() {
+      _panelSide[panel] = side;
+      _hidden.remove(panel);
+      if (side == PanelSide.center) {
+        _centerPanel = panel;
+      } else if (_centerPanel == panel) {
+        _centerPanel = null;
+      }
+    });
   }
 
-  /// Re-docks a panel onto another side after a drag-drop.
-  void _dockPanel(DockablePanel panel, PanelSide side) {
-    setState(() => _panelSide[panel] = side);
+  /// Hides a panel (close button): it returns to its default dock side and is
+  /// marked hidden so it disappears from the layout entirely.
+  void _hidePanel(DockablePanel panel) {
+    setState(() {
+      _hidden.add(panel);
+      _panelSide[panel] = _defaultSide(panel);
+      if (_centerPanel == panel) _centerPanel = null;
+    });
   }
+
+  void _selectEditor() {
+    setState(() => _centerPanel = null);
+    widget.controller.focusEditor();
+  }
+
+  void _selectPanel(DockablePanel panel) {
+    setState(() => _centerPanel = panel);
+    widget.controller.focusEditor();
+  }
+
+  static PanelSide _defaultSide(DockablePanel panel) => switch (panel) {
+        DockablePanel.files => PanelSide.left,
+        DockablePanel.agents => PanelSide.right,
+        DockablePanel.todos => PanelSide.right,
+        DockablePanel.logs => PanelSide.right,
+        DockablePanel.terminal => PanelSide.bottom,
+        DockablePanel.scripts => PanelSide.center,
+        DockablePanel.changes => PanelSide.center,
+        DockablePanel.backend => PanelSide.center,
+      };
 
   List<DockablePanel> _visiblePanelsOn(PanelSide side) => [
         for (final p in DockablePanel.values)
@@ -103,6 +172,7 @@ class _HomePageState extends State<HomePage> {
               panel: panels[i],
               controller: controller,
               onDragChanged: (v) => setState(() => _docking = v),
+              onClose: () => _hidePanel(panels[i]),
             ),
           ),
         ],
@@ -257,34 +327,98 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// The center editor area. Doubles as a drop target: drag any panel's tab
+  /// here to open it as a tab in the center (VS Code style).
   Widget _buildCenter(BuildContext context) {
-    if (_showBackendTester) {
-      return BackendTesterPanel(controller);
-    }
-    if (_showScripts) {
-      return ScriptsPanel(controller,
-          onClose: () => setState(() => _showScripts = false));
-    }
-    if (_showChanges) {
-      return ChangesPanel(controller,
-          onClose: () => setState(() => _showChanges = false));
-    }
-    return _buildDetailArea(context);
+    return DragTarget<DockablePanel>(
+      onWillAcceptWithDetails: (_) => true,
+      onAcceptWithDetails: (d) => _dockPanel(d.data, PanelSide.center),
+      builder: (context, candidates, _) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            RepaintBoundary(child: _buildCenterContent()),
+            if (candidates.isNotEmpty)
+              const IgnorePointer(child: _CenterDropHint()),
+          ],
+        );
+      },
+    );
   }
 
-  /// The detail-tab strip above the editor (VS Code style). Falls back to the
-  /// plain editor when no detail tabs are open.
-  Widget _buildDetailArea(BuildContext context) {
-    final tabs = controller.detailTabs;
-    if (tabs.isEmpty) return EditorPanel(controller);
+  /// The center column: tab strip (editor + detail tabs + center-docked
+  /// panels) on top, the selected view below. Without any tabs it is just the
+  /// plain editor.
+  Widget _buildCenterContent() {
+    final panels = _visiblePanelsOn(PanelSide.center);
+    final hasTabs = panels.isNotEmpty || controller.detailTabs.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _DetailTabBar(controller: controller),
-        const Divider(height: 1, color: Color(0xFF2A2B33)),
-        Expanded(child: _buildDetailContent()),
+        if (hasTabs) ...[
+          _buildCenterTabBar(panels),
+          const Divider(height: 1, color: Color(0xFF2A2B33)),
+        ],
+        Expanded(child: _buildActiveCenterView()),
       ],
     );
+  }
+
+  Widget _buildActiveCenterView() {
+    final panel = _centerPanel;
+    if (panel != null &&
+        !_hidden.contains(panel) &&
+        _panelSide[panel] == PanelSide.center) {
+      return _buildDockedPanel(panel);
+    }
+    final tab = controller.activeDetailTab;
+    if (tab != null) return _buildDetailContent();
+    return EditorPanel(controller);
+  }
+
+  /// VS Code-style tab strip for the center area. The editor tab is always
+  /// first, then live detail tabs, then any panels docked to the center.
+  Widget _buildCenterTabBar(List<DockablePanel> panels) {
+    return Container(
+      height: 34,
+      color: const Color(0xFF191A20),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _CenterTab(
+            icon: Icons.code,
+            iconColor: const Color(0xFF7C4DFF),
+            label: _editorTabLabel(),
+            active: _centerPanel == null && controller.activeDetailTab == null,
+            dirty: controller.openFile != null && controller.editorDirty,
+            onTap: _selectEditor,
+          ),
+          for (final tab in controller.detailTabs)
+            _CenterTab(
+              icon: tab.icon,
+              label: tab.label,
+              active: _centerPanel == null &&
+                  controller.activeDetailTab?.id == tab.id,
+              onTap: () => controller.activateDetailTab(tab.id),
+              onClose: () => controller.closeDetailTab(tab.id),
+            ),
+          for (final panel in panels)
+            _DraggableCenterTab(
+              panel: panel,
+              active: _centerPanel == panel,
+              onTap: () => _selectPanel(panel),
+              onClose: () => _hidePanel(panel),
+              onDragChanged: (v) => setState(() => _docking = v),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _editorTabLabel() {
+    final path = controller.openFile;
+    if (path == null || path.isEmpty) return 'Editor';
+    return path.split('/').last.split('\\').last;
   }
 
   Widget _buildDetailContent() {
@@ -314,6 +448,12 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// Builds a dockable panel body in the center area.
+  Widget _buildDockedPanel(DockablePanel panel) {
+    return _buildDockedPanelBody(controller, panel,
+        onClose: () => _hidePanel(panel));
+  }
+
   /// App-wide keyboard shortcuts (editor keeps its own Ctrl+S).
   KeyEventResult _handleGlobalKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -329,17 +469,17 @@ class _HomePageState extends State<HomePage> {
         }
       case LogicalKeyboardKey.keyP:
         if (shift) {
-          setState(() => _showScripts = !_showScripts);
+          setState(() => _togglePanel(DockablePanel.scripts));
           return KeyEventResult.handled;
         }
       case LogicalKeyboardKey.keyB:
         if (shift) {
-          setState(() => _showBackendTester = !_showBackendTester);
+          setState(() => _togglePanel(DockablePanel.backend));
           return KeyEventResult.handled;
         }
       case LogicalKeyboardKey.keyG:
         if (shift) {
-          setState(() => _showChanges = !_showChanges);
+          setState(() => _togglePanel(DockablePanel.changes));
           return KeyEventResult.handled;
         }
       case LogicalKeyboardKey.keyF:
@@ -463,31 +603,43 @@ class _HomePageState extends State<HomePage> {
             visualDensity: VisualDensity.compact,
           ),
           IconButton(
-            onPressed: () => setState(() => _showScripts = !_showScripts),
+            onPressed: () => setState(() => _togglePanel(DockablePanel.scripts)),
             icon: Icon(
-              _showScripts ? Icons.directions_run : Icons.directions_run_outlined,
+              _hidden.contains(DockablePanel.scripts)
+                  ? Icons.directions_run_outlined
+                  : Icons.directions_run,
               size: 20,
-              color: _showScripts ? const Color(0xFF7C4DFF) : Colors.grey,
+              color: _hidden.contains(DockablePanel.scripts)
+                  ? Colors.grey
+                  : const Color(0xFF7C4DFF),
             ),
             tooltip: 'Run scripts (Ctrl+Shift+P)',
             visualDensity: VisualDensity.compact,
           ),
           IconButton(
-            onPressed: () => setState(() => _showBackendTester = !_showBackendTester),
+            onPressed: () => setState(() => _togglePanel(DockablePanel.backend)),
             icon: Icon(
-              _showBackendTester ? Icons.bolt : Icons.bolt_outlined,
+              _hidden.contains(DockablePanel.backend)
+                  ? Icons.bolt_outlined
+                  : Icons.bolt,
               size: 20,
-              color: _showBackendTester ? const Color(0xFF7C4DFF) : Colors.grey,
+              color: _hidden.contains(DockablePanel.backend)
+                  ? Colors.grey
+                  : const Color(0xFF7C4DFF),
             ),
             tooltip: 'Toggle backend tester (Ctrl+Shift+B)',
             visualDensity: VisualDensity.compact,
           ),
           IconButton(
-            onPressed: () => setState(() => _showChanges = !_showChanges),
+            onPressed: () => setState(() => _togglePanel(DockablePanel.changes)),
             icon: Icon(
-              _showChanges ? Icons.commit : Icons.commit_outlined,
+              _hidden.contains(DockablePanel.changes)
+                  ? Icons.commit_outlined
+                  : Icons.commit,
               size: 20,
-              color: _showChanges ? const Color(0xFF7C4DFF) : Colors.grey,
+              color: _hidden.contains(DockablePanel.changes)
+                  ? Colors.grey
+                  : const Color(0xFF7C4DFF),
             ),
             tooltip: 'Project changes (Ctrl+Shift+G)',
             visualDensity: VisualDensity.compact,
@@ -613,11 +765,26 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/// Where a dockable panel currently lives.
-enum PanelSide { left, right, bottom }
+/// Where a dockable panel currently lives. The center is the editor area:
+/// panels dropped there appear as tabs alongside the open file.
+enum PanelSide { left, right, bottom, center }
 
 /// The dockable panels that can be dragged between sides, VS Code style.
-enum DockablePanel { files, agents, todos, logs, terminal }
+/// Scripts / Changes / Backend tester default to the center (closed) and are
+/// shown via their toolbar toggles or by dragging any panel into the center.
+enum DockablePanel { files, agents, todos, logs, terminal, scripts, changes, backend }
+
+/// (label, icon) pair for every dockable panel.
+(String, IconData) _panelMeta(DockablePanel panel) => switch (panel) {
+      DockablePanel.files => ('Files', Icons.folder_outlined),
+      DockablePanel.agents => ('Agents', Icons.smart_toy_outlined),
+      DockablePanel.todos => ('Todos', Icons.checklist_outlined),
+      DockablePanel.logs => ('Logs', Icons.receipt_long_outlined),
+      DockablePanel.terminal => ('Terminal', Icons.terminal),
+      DockablePanel.scripts => ('Run scripts', Icons.directions_run),
+      DockablePanel.changes => ('Changes', Icons.commit),
+      DockablePanel.backend => ('Backend tester', Icons.bolt),
+    };
 
 /// VS Code-style resize handle. A thin draggable bar between two panels;
 /// dragging moves the boundary, stretching/shrinking the panels. Double-click
@@ -678,11 +845,13 @@ class _DockPanel extends StatelessWidget {
   final DockablePanel panel;
   final AppController controller;
   final ValueChanged<bool> onDragChanged;
+  final VoidCallback? onClose;
 
   const _DockPanel({
     required this.panel,
     required this.controller,
     required this.onDragChanged,
+    this.onClose,
   });
 
   @override
@@ -692,17 +861,29 @@ class _DockPanel extends StatelessWidget {
       children: [
         _PanelTab(panel: panel, onDragChanged: onDragChanged),
         Expanded(
-          child: switch (panel) {
-            DockablePanel.files => FileTree(controller),
-            DockablePanel.agents => AgentPanel(controller),
-            DockablePanel.todos => TodoPanel(controller),
-            DockablePanel.logs => LogPanel(controller),
-            DockablePanel.terminal => TerminalPanel(controller),
-          },
+          child: _buildDockedPanelBody(controller, panel, onClose: onClose),
         ),
       ],
     );
   }
+}
+
+/// Builds the body of a dockable panel (used by side docks and center tabs).
+Widget _buildDockedPanelBody(
+  AppController controller,
+  DockablePanel panel, {
+  VoidCallback? onClose,
+}) {
+  return switch (panel) {
+    DockablePanel.files => FileTree(controller),
+    DockablePanel.agents => AgentPanel(controller),
+    DockablePanel.todos => TodoPanel(controller),
+    DockablePanel.logs => LogPanel(controller),
+    DockablePanel.terminal => TerminalPanel(controller),
+    DockablePanel.scripts => ScriptsPanel(controller, onClose: onClose),
+    DockablePanel.changes => ChangesPanel(controller, onClose: onClose),
+    DockablePanel.backend => BackendTesterPanel(controller),
+  };
 }
 
 /// The grab bar of a docked panel. Dragging it onto an edge of the window
@@ -715,13 +896,7 @@ class _PanelTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (label, icon) = switch (panel) {
-      DockablePanel.files => ('Files', Icons.folder_outlined),
-      DockablePanel.agents => ('Agents', Icons.smart_toy_outlined),
-      DockablePanel.todos => ('Todos', Icons.checklist_outlined),
-      DockablePanel.logs => ('Logs', Icons.receipt_long_outlined),
-      DockablePanel.terminal => ('Terminal', Icons.terminal),
-    };
+    final (label, icon) = _panelMeta(panel);
     return Draggable<DockablePanel>(
       data: panel,
       onDragStarted: () => onDragChanged(true),
@@ -843,6 +1018,7 @@ class _DropZone extends StatelessWidget {
             PanelSide.left => (Icons.arrow_back, Alignment.centerLeft),
             PanelSide.right => (Icons.arrow_forward, Alignment.centerRight),
             PanelSide.bottom => (Icons.arrow_downward, Alignment.bottomCenter),
+            PanelSide.center => (Icons.open_in_full, Alignment.center),
           };
           return Container(
             alignment: alignment,
@@ -865,57 +1041,64 @@ class _DropZone extends StatelessWidget {
   }
 }
 
-/// VS Code-style tab strip for the center editor area. Each tab has an X that
-/// closes only the view — the underlying process keeps running.
-class _DetailTabBar extends StatelessWidget {
-  final AppController controller;
+/// One tab in the center tab strip (VS Code style): the editor, a live detail
+/// tab, or a panel docked to the center. Tabs that can be closed show an X;
+/// closing a detail tab never stops the underlying process.
+class _CenterTab extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final bool active;
+  final bool dirty;
+  final VoidCallback onTap;
+  final VoidCallback? onClose;
+  final String? tooltip;
 
-  const _DetailTabBar({required this.controller});
+  const _CenterTab({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+    this.iconColor = const Color(0xFF7C4DFF),
+    this.dirty = false,
+    this.onClose,
+    this.tooltip,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final activeId = controller.activeDetailTab?.id;
-    return Container(
-      height: 34,
-      color: const Color(0xFF191A20),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          for (final tab in controller.detailTabs)
-            _buildTab(tab, tab.id == activeId),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTab(DetailTab tab, bool active) {
-    return Container(
-      width: 150,
+    final content = Container(
+      width: onClose != null ? 150 : 130,
       decoration: BoxDecoration(
         color: active ? const Color(0xFF14151A) : const Color(0xFF191A20),
         border: Border(
           right: const BorderSide(color: Color(0xFF2A2B33)),
           top: BorderSide(
-            color: active ? const Color(0xFF7C4DFF) : const Color(0xFF2A2B33),
+            color: active ? iconColor : const Color(0xFF2A2B33),
             width: active ? 2 : 1,
           ),
         ),
       ),
       child: InkWell(
-        onTap: () => controller.activateDetailTab(tab.id),
+        onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.only(left: 10, right: 2),
           child: Row(
             children: [
               Icon(
-                tab.icon,
+                icon,
                 size: 13,
-                color: active ? const Color(0xFF7C4DFF) : Colors.grey,
+                color: active ? iconColor : Colors.grey,
               ),
               const SizedBox(width: 6),
+              if (dirty) ...[
+                const Text('•',
+                    style: TextStyle(color: Colors.amber, fontSize: 13)),
+                const SizedBox(width: 4),
+              ],
               Expanded(
                 child: Text(
-                  tab.label,
+                  label,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 11.5,
@@ -923,14 +1106,102 @@ class _DetailTabBar extends StatelessWidget {
                   ),
                 ),
               ),
-              IconButton(
-                onPressed: () => controller.closeDetailTab(tab.id),
-                icon: const Icon(Icons.close, size: 13, color: Colors.white38),
-                tooltip: 'Close tab (process keeps running)',
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                    width: 24, height: 24),
+              if (onClose != null)
+                IconButton(
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close,
+                      size: 13, color: Colors.white38),
+                  tooltip: 'Close tab',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: 24, height: 24),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (tooltip == null) return content;
+    return Tooltip(message: tooltip!, child: content);
+  }
+}
+
+/// A center tab for a docked panel — it can also be dragged back out onto an
+/// edge to re-dock the panel on the left/right/bottom.
+class _DraggableCenterTab extends StatelessWidget {
+  final DockablePanel panel;
+  final bool active;
+  final VoidCallback onTap;
+  final VoidCallback onClose;
+  final ValueChanged<bool> onDragChanged;
+
+  const _DraggableCenterTab({
+    required this.panel,
+    required this.active,
+    required this.onTap,
+    required this.onClose,
+    required this.onDragChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, icon) = _panelMeta(panel);
+    final tab = _CenterTab(
+      icon: icon,
+      label: label,
+      active: active,
+      onTap: onTap,
+      onClose: onClose,
+      tooltip: 'Drag tab to move the panel to a side',
+    );
+    return Draggable<DockablePanel>(
+      data: panel,
+      onDragStarted: () => onDragChanged(true),
+      onDragEnd: (_) => onDragChanged(false),
+      onDragCompleted: () => onDragChanged(false),
+      onDraggableCanceled: (_, _) => onDragChanged(false),
+      feedback: _PanelTabPill(label: label, icon: icon),
+      childWhenDragging: Opacity(opacity: 0.35, child: tab),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.grab,
+        child: tab,
+      ),
+    );
+  }
+}
+
+/// Full-center highlight shown while a panel tab is dragged over the editor:
+/// tells the user the drop will open the panel as a center tab.
+class _CenterDropHint extends StatelessWidget {
+  const _CenterDropHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0x2A7C4DFF),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF7C4DFF),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: const [
+              BoxShadow(color: Color(0x667C4DFF), blurRadius: 24),
+            ],
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.open_in_full, color: Colors.white, size: 17),
+              SizedBox(width: 8),
+              Text(
+                'Drop to open in the center',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
               ),
             ],
           ),
