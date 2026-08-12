@@ -386,11 +386,9 @@ class _HomePageState extends State<HomePage> {
             ),
           const SizedBox(width: 8),
           FilledButton.icon(
-            onPressed: controller.isProjectOpen
-                ? null
-                : () => controller.openProject(),
+            onPressed: () => controller.openProject(),
             icon: const Icon(Icons.folder_open, size: 16),
-            label: Text(controller.isProjectOpen ? 'Project Open' : 'Open Project'),
+            label: Text(controller.isProjectOpen ? 'Switch Project' : 'Open Project'),
             style: FilledButton.styleFrom(
               visualDensity: VisualDensity.compact,
             ),
