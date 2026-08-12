@@ -152,6 +152,42 @@ class _HomePageState extends State<HomePage> {
         DockablePanel.backend => PanelSide.center,
       };
 
+  /// Panels that start closed and are only opened on demand (via their toolbar
+  /// toggles or the Panels menu).
+  static const Set<DockablePanel> _defaultHiddenPanels = {
+    DockablePanel.scripts,
+    DockablePanel.changes,
+    DockablePanel.backend,
+  };
+
+  /// True when the user has hidden a panel that is normally visible (files,
+  /// agents, todos, logs, terminal). Lights up the Panels menu as a hint that
+  /// something is tucked away.
+  bool get _hasHiddenPanels {
+    for (final p in DockablePanel.values) {
+      if (_hidden.contains(p) && !_defaultHiddenPanels.contains(p)) return true;
+    }
+    return false;
+  }
+
+  /// Puts every panel back on its default side and resets the layout sizes.
+  /// The escape hatch after hiding/moving panels around.
+  void _resetLayout() {
+    setState(() {
+      for (final p in DockablePanel.values) {
+        _panelSide[p] = _defaultSide(p);
+      }
+      _hidden
+        ..clear()
+        ..addAll(_defaultHiddenPanels);
+      _centerPanel = null;
+      _leftWidth = 260;
+      _rightWidth = 380;
+      _bottomHeight = 210;
+    });
+    widget.controller.focusEditor();
+  }
+
   List<DockablePanel> _visiblePanelsOn(PanelSide side) => [
         for (final p in DockablePanel.values)
           if (_panelSide[p] == side && !_hidden.contains(p)) p,
@@ -587,6 +623,58 @@ class _HomePageState extends State<HomePage> {
             style: const TextStyle(color: Colors.grey, fontSize: 12),
           ),
           const SizedBox(width: 16),
+          PopupMenuButton<DockablePanel>(
+            tooltip: 'Show / hide panels',
+            icon: Icon(
+              Icons.view_agenda_outlined,
+              size: 20,
+              color: _hasHiddenPanels
+                  ? const Color(0xFF7C4DFF)
+                  : Colors.grey,
+            ),
+            onSelected: (p) => setState(() => _togglePanel(p)),
+            itemBuilder: (context) => [
+              for (final p in DockablePanel.values)
+                PopupMenuItem<DockablePanel>(
+                  value: p,
+                  height: 36,
+                  child: Row(
+                    children: [
+                      Icon(
+                        _panelMeta(p).$2,
+                        size: 16,
+                        color: _hidden.contains(p)
+                            ? Colors.grey
+                            : const Color(0xFF7C4DFF),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _panelMeta(p).$1,
+                          style: const TextStyle(fontSize: 12.5),
+                        ),
+                      ),
+                      Icon(
+                        _hidden.contains(p)
+                            ? Icons.check_box_outline_blank
+                            : Icons.check_box,
+                        size: 16,
+                        color: _hidden.contains(p)
+                            ? Colors.grey
+                            : const Color(0xFF7C4DFF),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          IconButton(
+            onPressed: _resetLayout,
+            icon: const Icon(Icons.restart_alt, size: 20, color: Colors.grey),
+            tooltip: 'Reset layout (restore hidden panels)',
+            visualDensity: VisualDensity.compact,
+          ),
+          const SizedBox(width: 8),
           IconButton(
             onPressed: () =>
                 setState(() => _togglePanel(DockablePanel.terminal)),
