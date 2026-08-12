@@ -18,15 +18,18 @@ class TodoPanel extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
           child: Row(
             children: [
-              const Text(
-                'Shared Todo List',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey,
+              Expanded(
+                child: Text(
+                  'Shared Todo List',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Text(
                 '${items.where((t) => t.status == TodoStatus.done).length}/${items.length} done',
                 style: const TextStyle(fontSize: 11, color: Colors.grey),

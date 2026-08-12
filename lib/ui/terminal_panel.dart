@@ -25,7 +25,10 @@ class _TerminalPanelState extends State<TerminalPanel> {
     super.initState();
     final cfgPort = widget.controller.serverConfig.port;
     _port.text = cfgPort > 0 ? '$cfgPort' : '';
-    widget.controller.terminal.ensureStarted();
+    // Defer to the next frame so the shell never starts mid-build (starting
+    // notifies listeners synchronously).
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => widget.controller.terminal.ensureStarted());
   }
 
   @override
