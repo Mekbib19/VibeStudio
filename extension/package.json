@@ -1,0 +1,158 @@
+{
+  "name": "vibe-studio",
+  "displayName": "Vibe Studio — AI Team",
+  "description": "A team of AI agents that works your shared todo list, manages project scripts (start/stop), and tests your API — inside VS Code.",
+  "version": "0.2.0",
+  "publisher": "vibestudio",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "agents",
+    "todo",
+    "opencode",
+    "freebuff",
+    "api tester",
+    "scripts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mekbib19/VibeStudio.git"
+  },
+  "homepage": "https://github.com/Mekbib19/VibeStudio",
+  "bugs": {
+    "url": "https://github.com/Mekbib19/VibeStudio/issues"
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:vibeStudio.openPanel",
+    "onCommand:vibeStudio.startServer",
+    "onCommand:vibeStudio.stopServer",
+    "onCommand:vibeStudio.openFreebuff"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vibeStudio.openPanel",
+        "title": "Vibe Studio: Open AI Team panel",
+        "icon": "$(organization)"
+      },
+      {
+        "command": "vibeStudio.startServer",
+        "title": "Vibe Studio: Start opencode server",
+        "icon": "$(play)"
+      },
+      {
+        "command": "vibeStudio.stopServer",
+        "title": "Vibe Studio: Stop opencode server",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "vibeStudio.openFreebuff",
+        "title": "Vibe Studio: Open FreeBuff in a terminal"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vibe-studio",
+          "title": "Vibe Studio — AI Team",
+          "icon": "media/vibe-studio.svg"
+        }
+      ]
+    },
+    "views": {
+      "vibe-studio": [
+        {
+          "type": "webview",
+          "id": "vibeStudio.mainView",
+          "name": "AI Team",
+          "icon": "media/vibe-studio.svg"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "vibeStudio.startServer",
+          "when": "view == vibeStudio.mainView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vibeStudio.stopServer",
+          "when": "view == vibeStudio.mainView",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Vibe Studio",
+      "properties": {
+        "vibeStudio.autoTeam": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically spawn up to 3 worker agents when todos are queued and retire them when the queue drains."
+        },
+        "vibeStudio.port": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Fixed port for the opencode server. 0 = pick an automatic port."
+        },
+        "vibeStudio.mode": {
+          "type": "string",
+          "enum": [
+            "builtin",
+            "custom"
+          ],
+          "default": "builtin",
+          "enumDescriptions": [
+            "Use opencode's built-in auth/model selection.",
+            "Use an OpenAI-compatible endpoint (e.g. a FreeBuff proxy)."
+          ],
+          "description": "Which AI backend the opencode server talks to."
+        },
+        "vibeStudio.providerID": {
+          "type": "string",
+          "default": "freebuff",
+          "description": "Provider ID for the OpenAI-compatible endpoint (custom mode)."
+        },
+        "vibeStudio.baseURL": {
+          "type": "string",
+          "default": "http://127.0.0.1:8080/v1",
+          "description": "Base URL of the OpenAI-compatible endpoint (custom mode)."
+        },
+        "vibeStudio.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional API key sent as a Bearer token (custom mode)."
+        },
+        "vibeStudio.modelID": {
+          "type": "string",
+          "default": "",
+          "description": "Model ID to use (custom mode). Leave empty to use the provider default."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "test": "tsc -p ./ && node --test dist/test/*.test.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.6.0"
+  }
+}
